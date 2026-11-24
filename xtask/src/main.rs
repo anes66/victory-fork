@@ -59,7 +59,7 @@ fn main() -> Result<()> {
             let target = target_dir
                 .or_else(|| std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from))
                 .unwrap_or_else(|| root.join("target"));
-            agility::run(&target)
+            agility::run(&root, &target)
         }
     }
 }

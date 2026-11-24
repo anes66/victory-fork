@@ -4,7 +4,8 @@
 //! translated pipeline needs (issue #84). victory.exe asks D3D12 for a newer
 //! runtime (`apps/victory/src/agility.rs`); this puts Microsoft's
 //! `D3D12Core.dll`, and the debug layer's `d3d12SDKLayers.dll`, where it
-//! looks: `<target>/<profile>/D3D12/`.
+//! looks: `<target>/<profile>/D3D12/`. `victory-shader`'s test executables
+//! use it from there too (`crates/victory-shader/src/agility.rs`).
 //!
 //! The DLLs are Microsoft's, so they never enter the repository (asset
 //! policy): they are fetched from nuget.org, at a pinned version whose
@@ -17,7 +18,8 @@ use anyhow::{Context, Result, bail, ensure};
 use sha2::{Digest, Sha512};
 
 /// The package version. Its minor number is `D3D12SDKVersion` in
-/// `apps/victory/src/agility.rs`: keep the two in step.
+/// `apps/victory/src/agility.rs` and `crates/victory-shader/src/agility.rs`:
+/// keep the three in step.
 const VERSION: &str = "1.620.2";
 /// The package's SHA-512, as nuget.org's catalog gives it (base64
 /// `1oP/f1cm…MnNQ==`).
@@ -31,7 +33,7 @@ const FILES: &[&str] = &[
 /// The profiles victory.exe is built with (README).
 const PROFILES: &[&str] = &["debug", "release", "diag"];
 
-pub fn run(target: &Path) -> Result<()> {
+pub fn run(root: &Path, target: &Path) -> Result<()> {
     let package = fetch(target)?;
     let files = FILES
         .iter()
@@ -46,6 +48,15 @@ pub fn run(target: &Path) -> Result<()> {
         }
         println!("D3D12 Agility SDK {VERSION}: {}", dir.display());
     }
+    // victory-shader's build script exports the runtime to its tests only
+    // when it is there, and does not watch for it while it is missing (that
+    // would rebuild the crate every time): make cargo rerun it.
+    let script = root.join("crates/victory-shader/build.rs");
+    std::fs::File::options()
+        .append(true)
+        .open(&script)
+        .and_then(|f| f.set_modified(std::time::SystemTime::now()))
+        .with_context(|| format!("touching {}", script.display()))?;
     Ok(())
 }
 
@@ -208,11 +219,21 @@ mod tests {
 
     #[test]
     fn version_matches_the_sdk_version_victory_exports() {
-        let source = include_str!("../../apps/victory/src/agility.rs");
         let minor = VERSION.split('.').nth(1).unwrap();
-        assert!(
-            source.contains(&format!("D3D12SDKVersion: u32 = {minor};")),
-            "apps/victory/src/agility.rs must export D3D12SDKVersion = {minor}"
-        );
+        for (path, source) in [
+            (
+                "apps/victory/src/agility.rs",
+                include_str!("../../apps/victory/src/agility.rs"),
+            ),
+            (
+                "crates/victory-shader/src/agility.rs",
+                include_str!("../../crates/victory-shader/src/agility.rs"),
+            ),
+        ] {
+            assert!(
+                source.contains(&format!("D3D12SDKVersion: u32 = {minor};")),
+                "{path} must export D3D12SDKVersion = {minor}"
+            );
+        }
     }
 }
